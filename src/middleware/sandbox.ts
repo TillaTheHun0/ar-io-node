@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-import { Handler, Request } from 'express';
+import type { Request } from 'express';
 import url from 'node:url';
 import { base32 } from 'rfc4648';
 
 import { fromB64Url } from '../lib/encoding.js';
+import type { ArweaveG8wayMiddleware } from './types.js';
 
 function getRequestSandbox(req: Request): string | undefined {
   if (req.subdomains.length === 1) {
@@ -36,37 +37,39 @@ function sandboxFromId(id: string): string {
   return base32.stringify(fromB64Url(id), { pad: false }).toLowerCase();
 }
 
-export function createSandboxMiddleware({
-  rootHost,
-  sandboxProtocol,
-}: {
+export const createSandboxMiddleware: (coreDeps: {
   rootHost?: string;
   sandboxProtocol?: string;
-}): Handler {
-  return (req, res, next) => {
-    if (rootHost === undefined) {
-      next();
-      return;
-    }
+}) => ArweaveG8wayMiddleware =
+  ({ rootHost, sandboxProtocol }) =>
+  async ({ addCapability }) => {
+    await addCapability({ name: 'sandbox', version: '1.0.0' });
 
-    const id = getRequestId(req);
-    if (id === undefined) {
-      next();
-      return;
-    }
+    return (app) =>
+      app.use((req, res, next) => {
+        if (rootHost === undefined) {
+          next();
+          return;
+        }
 
-    const reqSandbox = getRequestSandbox(req);
-    const idSandbox = sandboxFromId(id);
-    if (reqSandbox !== idSandbox) {
-      const queryString = url.parse(req.originalUrl).query ?? '';
-      const path = req.path.replace(/\/\//, '/');
-      const protocol = sandboxProtocol ?? (req.secure ? 'https' : 'http');
-      return res.redirect(
-        302,
-        `${protocol}://${idSandbox}.${rootHost}${path}?${queryString}`,
-      );
-    }
+        const id = getRequestId(req);
+        if (id === undefined) {
+          next();
+          return;
+        }
 
-    next();
+        const reqSandbox = getRequestSandbox(req);
+        const idSandbox = sandboxFromId(id);
+        if (reqSandbox !== idSandbox) {
+          const queryString = url.parse(req.originalUrl).query ?? '';
+          const path = req.path.replace(/\/\//, '/');
+          const protocol = sandboxProtocol ?? (req.secure ? 'https' : 'http');
+          return res.redirect(
+            302,
+            `${protocol}://${idSandbox}.${rootHost}${path}?${queryString}`,
+          );
+        }
+
+        next();
+      });
   };
-}
